@@ -1,4 +1,3 @@
-# bidirectional server
 import threading
 import time
 import socketio
