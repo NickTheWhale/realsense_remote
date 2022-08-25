@@ -4,18 +4,83 @@ import socketio
 import eventlet
 from vidgear.gears import VideoGear
 from vidgear.gears import NetGear
+import numpy as np
+import cv2
+import opcua
+from opcua import Node, ua
+import logging as log
 
 
-IP_ADDRESS = '10.250.3.29'
+OPC_IP = 'opc.tcp://localhost:4840'
+VIDEO_IP = '10.250.3.29'
 VIDEO_PORT = 44444
 CONTROLS_PORT = 44443
 
+ROI_DEPTH_NODE = 'ns=2;i=2'
+ROI_INVALID_NODE = 'ns=2;i=3'
+ROI_DEVIATION_NODE = 'ns=2;i=4'
+ROI_SELECT_NODE = 'ns=2;i=5'
+STATUS_NODE = 'ns=2;i=6'
+ALIVE_NODE = 'ns=2;i=8'
 
+
+global running
+running = True
+global flip
+flip = False
+global text
+text = ''
+
+# `````````````````````````CONTROLS`````````````````````````
+
+
+def start_controls_server():
+
+    sio = socketio.Server()
+    app = socketio.WSGIApp(sio)
+
+    @sio.event
+    def connect(sid, environ):
+        global running
+        running = True
+        print('connect')
+
+    @sio.event
+    def my_message(sid, data: str):
+        print('message ', data)
+        global running
+        global flip
+        global text
+        if data == 'stop':
+            running = False
+        elif data == 'start':
+            running = True
+        elif data == 'flip':
+            flip = not flip
+        elif data.startswith('text'):
+            text = data[4:]
+        elif data.startswith('depth'):
+            try:
+                global opc_client
+                opc_client.write_node(opc_client.get_node(ROI_DEPTH_NODE), int(data[5:]), ua.VariantType.Float)
+            except Exception as e:
+                print('failed to write node:', e)
+
+    @sio.event
+    def disconnect(sid):
+        global running
+        running = False
+        print('disconnect')
+
+    eventlet.wsgi.server(eventlet.listen((VIDEO_IP, CONTROLS_PORT)), app)
+
+
+# ``````````````````````````VIDEO`````````````````````````
 # create camera stream
 stream = VideoGear(source=0).start()
 
 # create server
-video_options = {'address': IP_ADDRESS,
+video_options = {'address': VIDEO_IP,
                  'port': VIDEO_PORT,
                  'protocol': 'tcp',
                  'pattern': 2,
@@ -25,63 +90,144 @@ video_options = {'address': IP_ADDRESS,
 
 video_server = NetGear(**video_options)
 
-global running
-running = True
 
-def start_controls_server():
-    sio = socketio.Server()
-    app = socketio.WSGIApp(sio)
-
-    @sio.event
-    def connect(sid, environ):
-        print('connect ', sid)
-        print()
-
-    @sio.event
-    def my_message(sid, data):
-        print('message ', data)
-        print()
-        global running
-        if data == 'stop':
-            running = False
-        elif data == 'start':
-            running = True
-            
-
-    @sio.event
-    def disconnect(sid):
-        print('disconnect ', sid)
-        print()
-        
-    eventlet.wsgi.server(eventlet.listen((IP_ADDRESS, CONTROLS_PORT)), app)
-    
 def send_video():
     global running
     while True:
         if running:
-            frame = stream.read()
+            frame: np.ndarray = stream.read()
 
-            if frame is None:
-                break
+            if frame is not None:
+                global flip
+                global text
+                if flip:
+                    frame = cv2.flip(frame, int(flip))
+                if text != '':
+                    cv2.putText(frame, text, (100, 100), cv2.FONT_HERSHEY_SIMPLEX,
+                                1, (255, 255, 255), 1, cv2.LINE_AA, False)
+                frame = cv2.resize(frame, (1000, 500))
+                video_server.send(frame)
 
-            video_server.send(frame)
+        else:
+            time.sleep(0.1)
+
+
+# ````````````````````````OPC`````````````````````````
+def setup():
+    log.getLogger().setLevel(log.DEBUG)
+    log.getLogger(opcua.__name__).setLevel(log.WARNING)
+    opc_client = opcua.Client(OPC_IP)
+    opc_client.connect()
+    return opc_client
+
+
+class OpcClient:
+    def __init__(self, client: opcua.Client):
+        self._client = client
+
+        self._nodes = self.get_nodes()
+        self._running = True
+
+    def run(self) -> None:
+        """main loop"""
+        log.info('Running')
+        try:
+            while self._running:
+                self.read_nodes()
+                self.write_node(self._nodes['alive'], True, ua.VariantType.Boolean)
+                time.sleep(1)
+        except Exception as e:
+            log.error(e)
+
+    def write_node(self, node: Node, value, type: ua.VariantType) -> bool:
+        """write value to node
+
+        :param node: node
+        :type node: Node
+        :param value: write value
+        :type value: any
+        :param type: value type to convert value to
+        :type type: ua.VariantType
+        """
+        try:
+            dv = ua.DataValue(ua.Variant(value, type))
+            node.set_value(dv)
+        except (ua.UaError, TimeoutError) as e:
+            log.error(f'Failed to set "{node.get_browse_name()}" to "{value}": {e}')
+            return False
+        return True
+
+    def read_node(self, node: Node) -> None:
+        """get node value"""
+        try:
+            return node.get_value()
+        except ua.UaError as e:
+            log.error(f'Failed to get "{node.get_browse_name()}": {e}')
+
+    def read_nodes(self) -> None:
+        """log node values"""
+        longest = max([len(x) for x in self._nodes])
+
+        for node in self._nodes:
+            val = self.read_node(self._nodes[node])
+            current = len(node)
+            spaces = ' ' * (longest - current)
+            log.info(f'"{node}":{spaces} {val}')
+        print()
+
+    def get_nodes(self) -> None:
+        """retrieve nodes from opc server"""
+        try:
+            self._nodes = {
+                'roi_depth': self.get_node(ROI_DEPTH_NODE),
+                'roi_invalid': self.get_node(ROI_INVALID_NODE),
+                'roi_deviation': self.get_node(ROI_DEVIATION_NODE),
+                'roi_select': self.get_node(ROI_SELECT_NODE),
+                'status': self.get_node(STATUS_NODE),
+                'alive': self.get_node(ALIVE_NODE)
+            }
+        except Exception as e:
+            log.error(f'Failed to retrieve nodes from server: {e}', False)
+            self.stop()
+        else:
+            return self._nodes
+
+    def get_node(self, nodeid: str) -> Node:
+        """retrieve node from opc server"""
+        return self._client.get_node(nodeid)
+
+    def close(self) -> None:
+        """disconnect client and exit"""
+        try:
+            self._client.disconnect()
+        except RuntimeError:
+            pass
+
 
 try:
     controls_thread = threading.Thread(target=start_controls_server)
     controls_thread.daemon = True
     controls_thread.start()
-    
+
     video_thread = threading.Thread(target=send_video)
     video_thread.daemon = True
     video_thread.start()
-        
-    while True:
-        print('doing stuff here')
-        time.sleep(1)
+
+    try:
+        client = setup()
+    except Exception as e:
+        print(e)
+    else:
+        global opc_client
+        opc_client = OpcClient(client)
+        opc_client.run()
+
 
 except (KeyboardInterrupt, RuntimeError):
     pass
-
-
+try:
+    opc_client.close()
+except:
+    pass
 stream.stop()
 video_server.close()
