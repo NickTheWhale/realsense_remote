@@ -12,7 +12,7 @@ import logging as log
 
 
 OPC_IP = 'opc.tcp://localhost:4840'
-VIDEO_IP = '172.16.0.36'
+VIDEO_IP = '192.168.0.234'
 VIDEO_PORT = 44444
 CONTROLS_PORT = 44443
 

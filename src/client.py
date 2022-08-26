@@ -6,13 +6,13 @@ import numpy as np
 import socketio
 
 
-IP_ADDRESS = '172.16.0.36'
+VIDEO_IP = '192.168.0.234'
 VIDEO_PORT = 44444
 CONTROLS_PORT = 44443
 
 
 # ``````````````````````````VIDEO````````````````````````````
-video_options = {'address': IP_ADDRESS,
+video_options = {'address': VIDEO_IP,
                  'port': VIDEO_PORT,
                  'protocol': 'tcp',
                  'pattern': 2,
@@ -55,7 +55,7 @@ def send_data():
     def disconnect():
         print('disconnected from server')
 
-    sio.connect(f'http://{IP_ADDRESS}:{CONTROLS_PORT}')
+    sio.connect(f'http://{VIDEO_IP}:{CONTROLS_PORT}')
 
 send_data()
 
