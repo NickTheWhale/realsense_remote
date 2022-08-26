@@ -12,9 +12,9 @@ import logging as log
 
 
 OPC_IP = 'opc.tcp://localhost:4840'
-VIDEO_IP = '192.168.0.234'
-VIDEO_PORT = 44444
-CONTROLS_PORT = 44443
+VIDEO_IP = '10.250.3.29'
+VIDEO_PORT = 33333
+CONTROLS_PORT = 33332
 
 ROI_DEPTH_NODE = 'ns=2;i=2'
 ROI_INVALID_NODE = 'ns=2;i=3'
@@ -33,11 +33,11 @@ text = ''
 
 # `````````````````````````CONTROLS`````````````````````````
 
+sio = socketio.Server()
+app = socketio.WSGIApp(sio)
 
 def start_controls_server():
 
-    sio = socketio.Server()
-    app = socketio.WSGIApp(sio)
 
     @sio.event
     def connect(sid, environ):
@@ -56,9 +56,7 @@ def start_controls_server():
         elif command == 'start':
             running = True
         elif command == 'flip':
-            print('GOT FLIP')
             flip = not flip
-            print(flip)
         elif command.startswith('text'):
             text = command[4:]
         elif command.startswith('depth'):
@@ -110,6 +108,10 @@ def send_video():
                     cv2.putText(frame, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX,
                                 1, (255, 255, 255), 1, cv2.LINE_AA, False)
                 video_server.send(frame)
+                try:
+                    sio.emit('frame', 'frame')
+                except Exception as e:
+                    print(f'failed to send frame: {e}')
 
         else:
             time.sleep(0.1)

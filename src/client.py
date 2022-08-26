@@ -6,9 +6,9 @@ import numpy as np
 import socketio
 
 
-VIDEO_IP = '192.168.0.234'
-VIDEO_PORT = 44444
-CONTROLS_PORT = 44443
+VIDEO_IP = '10.250.3.29'
+VIDEO_PORT = 33333
+CONTROLS_PORT = 33332
 
 
 # ``````````````````````````VIDEO````````````````````````````
@@ -24,7 +24,7 @@ video_options = {'address': VIDEO_IP,
 video_client = NetGear(**video_options)
 
 global frame
-frame = None
+frame: np.ndarray = None
 
 
 def recv_video():
@@ -47,15 +47,15 @@ def send_data():
         print('connection established')
 
     @sio.event
-    def my_message(data):
-        print('message received with ', data)
-        sio.emit('my response', {'response': 'my response'})
+    def frame(*args):
+        print('frame', type(args), args)
 
     @sio.event
     def disconnect():
         print('disconnected from server')
 
     sio.connect(f'http://{VIDEO_IP}:{CONTROLS_PORT}')
+
 
 send_data()
 
@@ -95,12 +95,15 @@ while not isinstance(frame, np.ndarray):
     time.sleep(0.01)
 add_texture(frame)
 
+
 def play_pause(sender, data, user_data):
     sio.emit('command', user_data)
     sio.emit('command', f"text{'play' if user_data == 'start' else 'pause'}")
-    
+
+
 def flip(sender, data, user_data):
     sio.emit('command', user_data)
+
 
 with dpg.window(label='Video'):
     dpg.add_image('texture_tag')
@@ -109,8 +112,10 @@ with dpg.window(label='Video'):
         dpg.add_button(label='Pause', callback=play_pause, user_data='stop')
         dpg.add_button(label='Flip', callback=flip, user_data='flip')
 
+
 def chat(sender, text):
     sio.emit('command', text)
+
 
 with dpg.window(label='Chat Box'):
     dpg.add_input_text(on_enter=True, callback=chat, width=250)
@@ -121,6 +126,7 @@ dpg.show_viewport()
 while dpg.is_dearpygui_running():
     if isinstance(frame, np.ndarray):
         update_texture(frame)
+
     dpg.render_dearpygui_frame()
 
 if sio.connected:
