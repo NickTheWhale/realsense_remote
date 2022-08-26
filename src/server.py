@@ -12,7 +12,7 @@ import logging as log
 
 
 OPC_IP = 'opc.tcp://localhost:4840'
-VIDEO_IP = '10.250.3.29'
+VIDEO_IP = '172.16.0.36'
 VIDEO_PORT = 44444
 CONTROLS_PORT = 44443
 
@@ -46,23 +46,25 @@ def start_controls_server():
         print('connect')
 
     @sio.event
-    def my_message(sid, data: str):
-        print('message ', data)
+    def command(sid, command: str):
+        print('message ', command)
         global running
         global flip
         global text
-        if data == 'stop':
+        if command == 'stop':
             running = False
-        elif data == 'start':
+        elif command == 'start':
             running = True
-        elif data == 'flip':
+        elif command == 'flip':
+            print('GOT FLIP')
             flip = not flip
-        elif data.startswith('text'):
-            text = data[4:]
-        elif data.startswith('depth'):
+            print(flip)
+        elif command.startswith('text'):
+            text = command[4:]
+        elif command.startswith('depth'):
             try:
                 global opc_client
-                opc_client.write_node(opc_client.get_node(ROI_DEPTH_NODE), int(data[5:]), ua.VariantType.Float)
+                opc_client.write_node(opc_client.get_node(ROI_DEPTH_NODE), int(command[5:]), ua.VariantType.Float)
             except Exception as e:
                 print('failed to write node:', e)
 
@@ -102,10 +104,11 @@ def send_video():
                 global text
                 if flip:
                     frame = cv2.flip(frame, int(flip))
+                frame = cv2.resize(frame, (960, 540))
+                frame = frame[14:491, 122:838]
                 if text != '':
-                    cv2.putText(frame, text, (100, 100), cv2.FONT_HERSHEY_SIMPLEX,
+                    cv2.putText(frame, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX,
                                 1, (255, 255, 255), 1, cv2.LINE_AA, False)
-                frame = cv2.resize(frame, (1000, 500))
                 video_server.send(frame)
 
         else:
@@ -217,6 +220,8 @@ try:
         client = setup()
     except Exception as e:
         print(e)
+        while True:
+            time.sleep(1)
     else:
         global opc_client
         opc_client = OpcClient(client)
