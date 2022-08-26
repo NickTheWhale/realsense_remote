@@ -4,6 +4,7 @@ from vidgear.gears import NetGear
 import dearpygui.dearpygui as dpg
 import numpy as np
 import socketio
+from logger import mvLogger
 
 
 VIDEO_IP = '10.250.3.29'
@@ -115,10 +116,22 @@ with dpg.window(label='Video'):
 
 def chat(sender, text):
     sio.emit('command', text)
-
+    
+def chat_clear(sender, text):
+    print('clear', dpg.get_value(sender))
+    
+def send(sender, text, user_data):
+    print(sender, text)
 
 with dpg.window(label='Chat Box'):
-    dpg.add_input_text(on_enter=True, callback=chat, width=250)
+    dpg.add_input_text(tag='chat_box', on_enter=True, callback=chat, width=250)
+    with dpg.group(horizontal=True):
+        dpg.add_button(label='Send', callback=send, user_data=dpg.get_value('chat_box'))
+        dpg.add_button(label='Clear', callback=chat_clear)
+    
+with dpg.window(label='Log'):
+    dpg.add_text()
+    logger = mvLogger('Log')
 
 dpg.configure_app(docking=True, docking_space=True, init_file='dpg.ini')
 dpg.show_viewport()

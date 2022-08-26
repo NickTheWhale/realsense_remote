@@ -218,16 +218,16 @@ try:
     video_thread.daemon = True
     video_thread.start()
 
-    try:
-        client = setup()
-    except Exception as e:
-        print(e)
-        while True:
+    while True:
+        try:
+            client = setup()
+        except Exception as e:
+            print(e)
             time.sleep(1)
-    else:
-        global opc_client
-        opc_client = OpcClient(client)
-        opc_client.run()
+        else:
+            global opc_client
+            opc_client = OpcClient(client)
+            opc_client.run()
 
 
 except (KeyboardInterrupt, RuntimeError):
